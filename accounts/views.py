@@ -1,5 +1,6 @@
 # TODO
 from django.contrib.auth import authenticate
+from django.contrib.auth.hashers import check_password
 
 
 
@@ -11,7 +12,9 @@ from rest_framework import status
 # TODO
 from rest_framework.authtoken.models import Token
 
-from .serilizers import RegisterSerialzer, UserSerializer,LoginSeralizer
+from .serilizers import RegisterSerialzer, UserSerializer,LoginSeralizer,ProfileSerializer, PasswordChangeSerializer
+from .permissions import IsAdmin,IsManager,IsStaff,IsUser
+
 
 from rest_framework.authentication import TokenAuthentication
 
@@ -59,3 +62,59 @@ class ProfileView(APIView):
         serializer = UserSerializer(user)
 
         return Response(serializer.data)
+    
+    def put(self, request: Response) -> Response:
+        user = request.user
+
+        serializer = ProfileSerializer(data=request.data, partial=True)
+
+        if serializer.is_valid(raise_exception=True):
+            updated_user = serializer.update(user,serializer.validated_data)
+
+        serializer = UserSerializer(updated_user)
+        
+        return Response(serializer.data, status=status.HTTP_204_NO_CONTENT)
+    
+
+class PasswordChangeView(APIView):
+    authentication_classes = [TokenAuthentication]
+
+    def post(self, request: Request) -> Response:
+        serializer = PasswordChangeSerializer(data=request.data)
+
+        if serializer.is_valid(raise_exception=True):
+            user = request.user
+
+            if not check_password(serializer.validated_data['password'], user.password):
+                return Response('password is in correct',status=400)
+
+            user.set_password(serializer.validated_data['new_password'])
+            user.save()
+
+            serializer = UserSerializer(user)
+            return Response(serializer.data, status=status.HTTP_204_NO_CONTENT)
+        
+
+
+class AdminPanelView(APIView):
+    authentication_classes = [TokenAuthentication]
+    permission_classes = [IsAdmin]
+
+    def get(self, request: Request) -> Response:
+
+        return Response("Xush kelibsiz Admin")
+
+class UserPanelView(APIView):
+    authentication_classes = [TokenAuthentication]
+    permission_classes = [IsUser]
+
+    def get(self, request: Request) -> Response:
+        return Response("Xush keldiz User")
+    
+
+class ManagerPanleView(APIView):
+    authentication_classes = [TokenAuthentication]
+    permission_classes = [IsManager]
+
+    def get(self, request: Request) -> Response:
+        return Response("Xush keldiz Manager")
