@@ -1,26 +1,6 @@
-from django.db import models
 from django.contrib.auth.models import AbstractUser
+from django.db import models
 
 class CustomUser(AbstractUser):
-    ROLES = [
-        ['ADMIN','Admin'],
-        ['USER','User'],
-        ['MANAGER','Manager']
-    ]
-
-    role = models.CharField(
-        choices=ROLES,
-        default='USER'
-    )
-
-    @property
-    def is_admin(self):
-        return self.role == "ADMIN"
-    
-    @property
-    def is_user(self):
-        return self.role == "USER"
-    
-    @property
-    def is_manager(self):
-        return self.role == "MANAGER"
+    is_verified = models.BooleanField(default=False)
+    verification_code = models.CharField(max_length=6, null=True, blank=True)

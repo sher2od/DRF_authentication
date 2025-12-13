@@ -1,120 +1,93 @@
-# TODO
-from django.contrib.auth import authenticate
-from django.contrib.auth.hashers import check_password
-
-
+import random
 
 from rest_framework.views import APIView
-from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework import status
+from django.core.mail import send_mail
+from django.contrib.auth import authenticate
+from django.contrib.auth import get_user_model
+from .serilizers import RegisterSerialzer, VerifyEmailSerializer, LoginSeralizer
 
-# TODO
+from .utils import generate_code,send_verification_email
+
 from rest_framework.authtoken.models import Token
 
-from .serilizers import RegisterSerialzer, UserSerializer,LoginSeralizer,ProfileSerializer, PasswordChangeSerializer
-from .permissions import IsAdmin,IsManager,IsStaff,IsUser
+User = get_user_model()
 
-
-from rest_framework.authentication import TokenAuthentication
-
+# Register + emailga kod yuborish
 class RegisterView(APIView):
-    def post(self, request: Request) -> Response:
+    def post(self, request):
         serializer = RegisterSerialzer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = serializer.save()
 
-        if serializer.is_valid(raise_exception=True):
-            user = serializer.save()
+        # 4 xonali kod yaratish
+        code = str(random.randint(1000, 9999))
+        user.verification_code = code  # agar user modelga qo‘shilgan bo‘lsa
+        user.save()
 
-            user_json = UserSerializer(user).data
+        # Email yuborish
+        send_mail(
+            'Tasdiqlash kodi',
+            f'Sizning 4 xonali kodingiz: {code}',
+            'your_email@gmail.com',
+            [user.email],
+            fail_silently=False
+        )
 
-            return Response(user_json,status=status.HTTP_201_CREATED)
-        
-        return Response(status=status.HTTP_400_BAD_REQUEST)
-    
+        return Response({"msg": "Ro‘yxatdan o‘tildi. Emailga kod yuborildi."}, status=201)
 
+# Verify email
+class VerifyEmailView(APIView):
+    def post(self, request):
+        serializer = VerifyEmailSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        email = serializer.validated_data['email']
+        code = serializer.validated_data['code']
+
+        user = User.objects.filter(email=email).first()
+        if not user:
+            return Response({"error": "User topilmadi"}, status=404)
+
+        if user.verification_code != code:
+            return Response({"error": "Kod noto‘g‘ri"}, status=400)
+
+        user.is_active = True
+        user.verification_code = None
+        user.save()
+
+        return Response({"msg": "Email tasdiqlandi"}, status=200)
+
+
+
+# Login
 class LoginView(APIView):
-    def post(self,request:Request) -> Response:
+    def post(self, request):
         serializer = LoginSeralizer(data=request.data)
-        if serializer.is_valid(raise_exception=True):
-            data = serializer.validated_data
-            user = authenticate(username=data['username'], password = data['password'])
+        serializer.is_valid(raise_exception=True)
 
-        if user is not None:
-            token,created = Token.objects.get_or_create(user=user)
-            return Response({'token':token.key},status=status.HTTP_200_OK)
-        
-        return Response(status=status.HTTP_404_NOT_FOUND)
-    
-class LogoutView(APIView):
-    authentication_classes = [TokenAuthentication]
-    def post(self,request: Request) -> Response:
-        request.user.auth_token.delete()
+        email = serializer.validated_data['email']
+        password = serializer.validated_data['password']
 
-        return Response(status=status.HTTP_204_NO_CONTENT)
-        
+        user_obj = User.objects.filter(email=email).first()
+        if not user_obj:
+            return Response({"error": "Email yoki password noto‘g‘ri"}, status=400)
 
-class ProfileView(APIView):
-    authentication_classes = [TokenAuthentication]
+        user = authenticate(
+            username=user_obj.username,
+            password=password
+        )
 
-    def get(self, request: Request) -> Response:
-        user = request.user
+        if not user:
+            return Response({"error": "Email yoki password noto‘g‘ri"}, status=400)
 
-        serializer = UserSerializer(user)
+        if not user.is_active:
+            return Response({"error": "Email tasdiqlanmagan"}, status=400)
 
-        return Response(serializer.data)
-    
-    def put(self, request: Response) -> Response:
-        user = request.user
-
-        serializer = ProfileSerializer(data=request.data, partial=True)
-
-        if serializer.is_valid(raise_exception=True):
-            updated_user = serializer.update(user,serializer.validated_data)
-
-        serializer = UserSerializer(updated_user)
-        
-        return Response(serializer.data, status=status.HTTP_204_NO_CONTENT)
-    
-
-class PasswordChangeView(APIView):
-    authentication_classes = [TokenAuthentication]
-
-    def post(self, request: Request) -> Response:
-        serializer = PasswordChangeSerializer(data=request.data)
-
-        if serializer.is_valid(raise_exception=True):
-            user = request.user
-
-            if not check_password(serializer.validated_data['password'], user.password):
-                return Response('password is in correct',status=400)
-
-            user.set_password(serializer.validated_data['new_password'])
-            user.save()
-
-            serializer = UserSerializer(user)
-            return Response(serializer.data, status=status.HTTP_204_NO_CONTENT)
-        
+        token, _ = Token.objects.get_or_create(user=user)
+        return Response({"token": token.key}, status=200)
 
 
-class AdminPanelView(APIView):
-    authentication_classes = [TokenAuthentication]
-    permission_classes = [IsAdmin]
 
-    def get(self, request: Request) -> Response:
 
-        return Response("Xush kelibsiz Admin")
-
-class UserPanelView(APIView):
-    authentication_classes = [TokenAuthentication]
-    permission_classes = [IsUser]
-
-    def get(self, request: Request) -> Response:
-        return Response("Xush keldiz User")
-    
-
-class ManagerPanleView(APIView):
-    authentication_classes = [TokenAuthentication]
-    permission_classes = [IsManager]
-
-    def get(self, request: Request) -> Response:
-        return Response("Xush keldiz Manager")
